@@ -31,6 +31,7 @@ import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlayerFactory;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.LoadControl;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.audio.AudioRendererEventListener;
@@ -47,6 +48,7 @@ import com.google.android.exoplayer2.source.dash.offline.DashDownloader;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.ui.DefaultTimeBar;
 import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.upstream.Allocator;
 import com.google.android.exoplayer2.upstream.BandwidthMeter;
@@ -85,9 +87,8 @@ public class PlayerActivity extends AppCompatActivity {
   private int currentWindow;
   private boolean playWhenReady = true;
 
-
-  // Cache
-
+  // Create a default LoadControl
+  public LoadControl loadControl;
 
 
 
@@ -98,6 +99,12 @@ public class PlayerActivity extends AppCompatActivity {
       Log.d("Bandwidth - Elapsed", String.valueOf(elapsedMs) + "/ms" + " |" + "Bytes " + String.valueOf(bytes) +" |" + " Bitrate " + String.valueOf(bitrate) + " bits/sec");
       //Log.d("Bandwidth - bytes", String.valueOf(bytes));
       //Log.d("Bandwidth - bits/s", String.valueOf(bitrate));
+
+      Log.d("loadControlAllocator", String.valueOf(loadControl.getAllocator().getTotalBytesAllocated()));
+      Log.d("loadControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
+
+      Log.d("loadControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
+      Log.d("loadControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
     }
   });
 
@@ -112,7 +119,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     componentListener = new ComponentListener();
     playerView = findViewById(R.id.video_view);
-
+    //DefaultTimeBar timeBar = new DefaultTimeBar(getApplicationContext(),R.id.exo_progress);
   }
 
   @Override
@@ -158,12 +165,11 @@ public class PlayerActivity extends AppCompatActivity {
       TrackSelection.Factory adaptiveTrackSelectionFactory =
           new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
 
+      loadControl = new DefaultLoadControl();
+
       // using a DefaultTrackSelector with an adaptive video selection factory
       player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
-          new DefaultTrackSelector(adaptiveTrackSelectionFactory), new DefaultLoadControl());
-
-      //cache
-
+          new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
 
       player.addListener(componentListener);
       player.addVideoDebugListener(componentListener);
@@ -218,6 +224,7 @@ public class PlayerActivity extends AppCompatActivity {
         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+
         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
   }
 
