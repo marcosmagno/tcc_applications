@@ -119,7 +119,7 @@ public class PlayerActivity extends AppCompatActivity {
 
     componentListener = new ComponentListener();
     playerView = findViewById(R.id.video_view);
-    //DefaultTimeBar timeBar = new DefaultTimeBar(getApplicationContext(),R.id.exo_progress);
+
   }
 
   @Override
