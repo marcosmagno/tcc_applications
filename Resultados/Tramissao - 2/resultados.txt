@@ -1,0 +1,18 @@
+Com 1 celular
+Média			1.6784
+Variância		4.506170
+Desvio padrão	0.750514
+Mínimo			0.4941755
+Máximo			3.62799
+Mediana			1.49982875
+Assimetria		0.0555285 
+
+
+Com dois celulares
+Média			1.47673625
+Variância		3.909890
+Desvio padrão	0.69909675
+Mínimo			0.10215275
+Máximo			3.55388375
+Mediana			1.32758125
+Assimetria		0.07126075 
