@@ -16,16 +16,16 @@
 package com.example.winet;
 
 import android.annotation.SuppressLint;
-import android.app.DownloadManager;
-import android.content.Context;
+import android.media.MediaScannerConnection;
+import android.net.TrafficStats;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
-import android.webkit.DownloadListener;
 
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
@@ -36,43 +36,30 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.audio.AudioRendererEventListener;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
-import com.google.android.exoplayer2.offline.DownloaderConstructorHelper;
-import com.google.android.exoplayer2.offline.SegmentDownloader;
-import com.google.android.exoplayer2.source.ExtractorMediaSource;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.dash.DashChunkSource;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
 import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
-import com.google.android.exoplayer2.source.dash.manifest.RepresentationKey;
-import com.google.android.exoplayer2.source.dash.offline.DashDownloader;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.TrackSelection;
-import com.google.android.exoplayer2.ui.DefaultTimeBar;
 import com.google.android.exoplayer2.ui.PlayerView;
-import com.google.android.exoplayer2.upstream.Allocator;
 import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DefaultAllocator;
+import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
-import com.google.android.exoplayer2.upstream.FileDataSource;
-import com.google.android.exoplayer2.upstream.cache.Cache;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSink;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSinkFactory;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
-import com.google.android.exoplayer2.upstream.cache.CacheUtil;
-import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
-import com.google.android.exoplayer2.upstream.cache.NoOpCacheEvictor;
-import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
+import com.example.winet.CacheDataSource;
 
+import java.io.BufferedWriter;
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 
 /**
  * A fullscreen activity to play audio or video streams.
@@ -91,40 +78,54 @@ public class PlayerActivity extends AppCompatActivity {
   public LoadControl loadControl;
 
 
-
   // bandwidth meter to measure and estimate bandwidth
   private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
     @Override
     public void onBandwidthSample(int elapsedMs, long bytes, long bitrate) {
-      Log.d("Bandwidth - Elapsed", String.valueOf(elapsedMs) + "/ms" + " |" + "Bytes " + String.valueOf(bytes) +" |" + " Bitrate " + String.valueOf(bitrate) + " bits/sec");
-      //Log.d("Bandwidth - bytes", String.valueOf(bytes));
-      //Log.d("Bandwidth - bits/s", String.valueOf(bitrate));
+      Log.d("Bandwidth - Elapsed", String.valueOf(elapsedMs)+";"+String.valueOf(bytes)+";"+String.valueOf(bitrate)+";");
+      Log.d("Buffer - Allocator", String.valueOf(loadControl.getAllocator().getTotalBytesAllocated()));
+      Log.d("Buffer - ControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
+      Log.d("Buffer - ControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
+      Log.d("Buffer - ControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
 
-      Log.d("loadControlAllocator", String.valueOf(loadControl.getAllocator().getTotalBytesAllocated()));
-      Log.d("loadControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
+        try {
+            // Creates a file in the primary external storage space of the
+            // current application.
+            // If the file does not exists, it is created.
+            File testFile = new File(getApplicationContext().getExternalFilesDir(null), "Logs.txt");
+            if (!testFile.exists())
+                testFile.createNewFile();
 
-      Log.d("loadControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
-      Log.d("loadControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
+            // Adds a line to the file
+            BufferedWriter writer = new BufferedWriter(new FileWriter(testFile, true /*append*/));
+            writer.write(elapsedMs+";"+bytes+";"+bitrate+"\n");
+            writer.close();
+            // Refresh the data so it can seen when the device is plugged in a
+            // computer. You may have to unplug and replug the device to see the
+            // latest changes. This is not necessary if the user should not modify
+            // the files.
+            MediaScannerConnection.scanFile(getApplicationContext(),
+                    new String[]{testFile.toString()},
+                    null,
+                    null);
+        } catch (IOException e) {
+            Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
+        }
+
     }
   });
 
-
-
-
-  //public final clas
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_player);
-
     componentListener = new ComponentListener();
     playerView = findViewById(R.id.video_view);
-
-  }
+}
 
   @Override
   public void onStart() {
-    Log.d("onStart", "testando");
+
     super.onStart();
     if (Util.SDK_INT > 23) {
       initializePlayer();
@@ -157,15 +158,14 @@ public class PlayerActivity extends AppCompatActivity {
   }
 
   private void initializePlayer() {
-
     if (player == null) {
-
-
       // a factory to create an AdaptiveVideoTrackSelection
       TrackSelection.Factory adaptiveTrackSelectionFactory =
           new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
 
+      // a controller
       loadControl = new DefaultLoadControl();
+
 
       // using a DefaultTrackSelector with an adaptive video selection factory
       player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
@@ -179,16 +179,15 @@ public class PlayerActivity extends AppCompatActivity {
 
       player.seekTo(currentWindow, playbackPosition);
     }
-    CacheDataSourceFactory cacheDataSourceFactory = new CacheDataSourceFactory(getApplicationContext(),100 * 1024 * 1024, 5 * 1024 * 1024);
-    cacheDataSourceFactory.createDataSource();
+
+    CacheDataSource cacheDataSource = new CacheDataSource();
+
     MediaSource mediaSource = buildMediaSource(Uri.parse(getString(R.string.media_url_dash)));
     player.prepare(mediaSource, true, false);
 
 
 
   }
-
-
 
   private void releasePlayer() {
     if (player != null) {
@@ -206,15 +205,13 @@ public class PlayerActivity extends AppCompatActivity {
   }
 
   private MediaSource buildMediaSource(Uri uri) {
-
-
-    RepresentationKey representationKey = new RepresentationKey(0,0,0);
     DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
     DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
         new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
 
       return new DashMediaSource.Factory(dashChunkSourceFactory, manifestDataSourceFactory)
         .createMediaSource(uri);
+
   }
 
   @SuppressLint("InlinedApi")
@@ -252,7 +249,7 @@ public class PlayerActivity extends AppCompatActivity {
           stateString = "UNKNOWN_STATE             -";
           break;
       }
-      Log.d(TAG, "Bandwidth - changed state to " + stateString + " playWhenReady: " + playWhenReady);
+      Log.d(TAG, "Bandwidth - changed state to " + stateString + " playWhenReady: " + playWhenReady + playbackState);
     }
 
 
@@ -328,35 +325,28 @@ public class PlayerActivity extends AppCompatActivity {
 
   }
 
-    public class CacheDataSourceFactory implements DataSource.Factory {
-        private final Context context;
-        private final DefaultDataSourceFactory defaultDatasourceFactory;
-        private final long maxFileSize, maxCacheSize;
 
-        CacheDataSourceFactory(Context context, long maxCacheSize, long maxFileSize) {
 
-            super();
-            Log.d("Cache Data", "Cache");
-            this.context = context;
-            this.maxCacheSize = maxCacheSize;
-            this.maxFileSize = maxFileSize;
-            String userAgent = Util.getUserAgent(context, context.getString(R.string.app_name));
-            DefaultBandwidthMeter bandwidthMeter = new DefaultBandwidthMeter();
-            defaultDatasourceFactory = new DefaultDataSourceFactory(this.context,
-                    bandwidthMeter,
-                    new DefaultHttpDataSourceFactory(userAgent, bandwidthMeter));
+    public final class CacheDataSource implements DataSource{
+
+        @Override
+        public long open(DataSpec dataSpec) throws IOException {
+            return 0;
         }
 
         @Override
-        public DataSource createDataSource() {
-            LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(maxCacheSize);
-            Log.d("Evictor", evictor.toString());
-            SimpleCache simpleCache = new SimpleCache(new File(String.valueOf(context.getAssets().getLocales()), "media"), evictor);
-            Log.d("Cache", String.valueOf(context.getAssets().getLocales()));
-            return new CacheDataSource(simpleCache, defaultDatasourceFactory.createDataSource(),
-                    new FileDataSource(), new CacheDataSink(simpleCache, maxFileSize),
-                    CacheDataSource.FLAG_BLOCK_ON_CACHE | CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR, null);
+        public int read(byte[] buffer, int offset, int readLength) throws IOException {
+            return 0;
+        }
+
+        @Override
+        public Uri getUri() {
+            return null;
+        }
+
+        @Override
+        public void close() throws IOException {
+
         }
     }
-
 }
