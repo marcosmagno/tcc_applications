@@ -11,16 +11,14 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
-* limitations under the License.
+ * limitations under the License.
  */
 package com.example.winet;
 
 import android.annotation.SuppressLint;
 import android.media.MediaScannerConnection;
-import android.net.TrafficStats;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -36,30 +34,36 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.audio.AudioRendererEventListener;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
+import com.google.android.exoplayer2.offline.DownloaderConstructorHelper;
+import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.dash.DashChunkSource;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
 import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
+import com.google.android.exoplayer2.source.dash.manifest.RepresentationKey;
+import com.google.android.exoplayer2.source.dash.offline.DashDownloader;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.TrackSelection;
 import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DataSpec;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
+import com.google.android.exoplayer2.upstream.cache.Cache;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSourceFactory;
+import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
+import com.google.android.exoplayer2.upstream.cache.NoOpCacheEvictor;
+import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
-import com.example.winet.CacheDataSource;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
+import java.util.Collections;
 
 /**
  * A fullscreen activity to play audio or video streams.
@@ -74,9 +78,13 @@ public class PlayerActivity extends AppCompatActivity {
   private int currentWindow;
   private boolean playWhenReady = true;
 
+  public Thread t = null;
+
   // Create a default LoadControl
   public LoadControl loadControl;
 
+
+  CacheDataSourceFactory cacheDataSourceFactory = null;
 
   // bandwidth meter to measure and estimate bandwidth
   private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
@@ -87,30 +95,8 @@ public class PlayerActivity extends AppCompatActivity {
       Log.d("Buffer - ControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
       Log.d("Buffer - ControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
       Log.d("Buffer - ControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
-
-        try {
-            // Creates a file in the primary external storage space of the
-            // current application.
-            // If the file does not exists, it is created.
-            File testFile = new File(getApplicationContext().getExternalFilesDir(null), "Logs.txt");
-            if (!testFile.exists())
-                testFile.createNewFile();
-
-            // Adds a line to the file
-            BufferedWriter writer = new BufferedWriter(new FileWriter(testFile, true /*append*/));
-            writer.write(elapsedMs+";"+bytes+";"+bitrate+"\n");
-            writer.close();
-            // Refresh the data so it can seen when the device is plugged in a
-            // computer. You may have to unplug and replug the device to see the
-            // latest changes. This is not necessary if the user should not modify
-            // the files.
-            MediaScannerConnection.scanFile(getApplicationContext(),
-                    new String[]{testFile.toString()},
-                    null,
-                    null);
-        } catch (IOException e) {
-            Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
-        }
+      String logBandwidth = String.valueOf(elapsedMs+";"+bytes+";"+bitrate+";");
+      //salvarLog("Bandwith;" , logBandwidth);
 
     }
   });
@@ -121,7 +107,7 @@ public class PlayerActivity extends AppCompatActivity {
     setContentView(R.layout.activity_player);
     componentListener = new ComponentListener();
     playerView = findViewById(R.id.video_view);
-}
+  }
 
   @Override
   public void onStart() {
@@ -161,7 +147,7 @@ public class PlayerActivity extends AppCompatActivity {
     if (player == null) {
       // a factory to create an AdaptiveVideoTrackSelection
       TrackSelection.Factory adaptiveTrackSelectionFactory =
-          new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
+              new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
 
       // a controller
       loadControl = new DefaultLoadControl();
@@ -169,7 +155,7 @@ public class PlayerActivity extends AppCompatActivity {
 
       // using a DefaultTrackSelector with an adaptive video selection factory
       player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
-          new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
+              new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
 
       player.addListener(componentListener);
       player.addVideoDebugListener(componentListener);
@@ -180,10 +166,12 @@ public class PlayerActivity extends AppCompatActivity {
       player.seekTo(currentWindow, playbackPosition);
     }
 
-    CacheDataSource cacheDataSource = new CacheDataSource();
 
     MediaSource mediaSource = buildMediaSource(Uri.parse(getString(R.string.media_url_dash)));
+    t.start();
+
     player.prepare(mediaSource, true, false);
+    //player.prepare(concatenatingMediaSource, true, false);
 
 
 
@@ -205,28 +193,62 @@ public class PlayerActivity extends AppCompatActivity {
   }
 
   private MediaSource buildMediaSource(Uri uri) {
-    DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
+    final Uri uriRecv = uri;
+
+    final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
+
     DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
-        new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
+            new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
 
-      return new DashMediaSource.Factory(dashChunkSourceFactory, manifestDataSourceFactory)
-        .createMediaSource(uri);
 
+    t = new Thread(new Runnable() {
+      @Override
+      public void run() {
+        File cacheDirectory = new File(getApplicationContext().getExternalCacheDir(), "downloads");
+        LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(100 * 1024 * 1024);
+        SimpleCache cache = new SimpleCache(cacheDirectory, evictor);
+        //DefaultHttpDataSourceFactory factory = new DefaultHttpDataSourceFactory("ExoPlayer", null);
+        DownloaderConstructorHelper constructorHelper =
+                new DownloaderConstructorHelper(cache, manifestDataSourceFactory);
+        // Create a downloader for the first representation of the first adaptation set of the first
+        // period.
+        Log.d("File", String.valueOf(getApplicationContext().getExternalCacheDir()));
+        DashDownloader dashDownloader = new DashDownloader(uriRecv, Collections.singletonList(new RepresentationKey(0, 0, 0)), constructorHelper);
+        try {
+          dashDownloader.download();
+          dashDownloader.getDownloadPercentage();
+          Log.d("Download", String.valueOf(dashDownloader.getDownloadPercentage()));
+
+          Log.d("Download", "Download");
+        }
+        catch (IOException e) {
+          e.printStackTrace();
+        } catch (InterruptedException e) {
+          e.printStackTrace();
+        }
+
+
+      }
+    });
+
+
+    return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
   }
+
 
   @SuppressLint("InlinedApi")
   private void hideSystemUi() {
     playerView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
-        | View.SYSTEM_UI_FLAG_FULLSCREEN
-        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
 
-        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
   }
 
   private class ComponentListener extends Player.DefaultEventListener implements
-      VideoRendererEventListener, AudioRendererEventListener {
+          VideoRendererEventListener, AudioRendererEventListener {
 
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
@@ -274,11 +296,15 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     public void onDroppedFrames(int count, long elapsedMs) {
       // Do nothing.
+      Log.d("Qualidade Video;", "Dropped Frames: " + " " + count);
+      //salvarLog("Dropped Frames;", String.valueOf(count));
     }
 
     @Override
     public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
       // Do nothing.
+      Log.d("Video", "Video Size Changed: " + " " + width);
+      //salvarLog("Qualidade Video;", String.valueOf(width));
     }
 
     @Override
@@ -326,27 +352,31 @@ public class PlayerActivity extends AppCompatActivity {
   }
 
 
+  public void salvarLog(String type, String data) {
+    try {
+      // Creates a file in the primary external storage space of the
+      // current application.
+      // If the file does not exists, it is created.
+      File testFile = new File(getApplicationContext().getExternalFilesDir(null), "Logs.txt");
+      if (!testFile.exists())
+        testFile.createNewFile();
 
-    public final class CacheDataSource implements DataSource{
-
-        @Override
-        public long open(DataSpec dataSpec) throws IOException {
-            return 0;
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int readLength) throws IOException {
-            return 0;
-        }
-
-        @Override
-        public Uri getUri() {
-            return null;
-        }
-
-        @Override
-        public void close() throws IOException {
-
-        }
+      // Adds a line to the file
+      BufferedWriter writer = new BufferedWriter(new FileWriter(testFile, true /*append*/));
+      writer.write(type + data + "\n");
+      writer.close();
+      // Refresh the data so it can seen when the device is plugged in a
+      // computer. You may have to unplug and replug the device to see the
+      // latest changes. This is not necessary if the user should not modify
+      // the files.
+      MediaScannerConnection.scanFile(getApplicationContext(),
+              new String[]{testFile.toString()},
+              null,
+              null);
+    } catch (IOException e) {
+      Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
     }
+
+  }
+
 }
