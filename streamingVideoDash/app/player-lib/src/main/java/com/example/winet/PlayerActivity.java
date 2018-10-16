@@ -77,14 +77,19 @@ public class PlayerActivity extends AppCompatActivity {
   private long playbackPosition;
   private int currentWindow;
   private boolean playWhenReady = true;
-
-  public Thread t = null;
+  public Thread threadDownload = null;
 
   // Create a default LoadControl
   public LoadControl loadControl;
 
+  // Socket Client
+  public ClientSocket clientSocket = new ClientSocket();
+  public Thread threadClienteSocket = null;
 
-  CacheDataSourceFactory cacheDataSourceFactory = null;
+
+
+
+
 
   // bandwidth meter to measure and estimate bandwidth
   private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
@@ -96,7 +101,7 @@ public class PlayerActivity extends AppCompatActivity {
       Log.d("Buffer - ControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
       Log.d("Buffer - ControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
       String logBandwidth = String.valueOf(elapsedMs+";"+bytes+";"+bitrate+";");
-      //salvarLog("Bandwith;" , logBandwidth);
+      salvarLog("Bandwith;" , logBandwidth);
 
     }
   });
@@ -111,11 +116,21 @@ public class PlayerActivity extends AppCompatActivity {
 
   @Override
   public void onStart() {
+      super.onStart();
+      if (Util.SDK_INT > 23) {
+          initializePlayer();
+      }
 
-    super.onStart();
-    if (Util.SDK_INT > 23) {
-      initializePlayer();
-    }
+      threadClienteSocket = new Thread(new Runnable() {
+          @Override
+          public void run() {
+            clientSocket.startConnection();
+            Log.d("clienteSocket","connection");
+            clientSocket.sendDataCellPhone();
+          }
+      });
+      Log.d("clienteSocket","start thread");
+      threadClienteSocket.start();
   }
 
   @Override
@@ -125,6 +140,7 @@ public class PlayerActivity extends AppCompatActivity {
     if ((Util.SDK_INT <= 23 || player == null)) {
       initializePlayer();
     }
+
   }
 
   @Override
@@ -166,9 +182,9 @@ public class PlayerActivity extends AppCompatActivity {
       player.seekTo(currentWindow, playbackPosition);
     }
 
-
+    //TODO teste: 4G constroi o media source - D2D cria um novo socket (Definir uma variavel de controle)
     MediaSource mediaSource = buildMediaSource(Uri.parse(getString(R.string.media_url_dash)));
-    t.start();
+    threadDownload.start();
 
     player.prepare(mediaSource, true, false);
     //player.prepare(concatenatingMediaSource, true, false);
@@ -193,15 +209,14 @@ public class PlayerActivity extends AppCompatActivity {
   }
 
   private MediaSource buildMediaSource(Uri uri) {
-    final Uri uriRecv = uri;
+      final Uri uriRecv = uri;
+      final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
 
-    final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
-
-    DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
-            new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
+      DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
+              new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
 
 
-    t = new Thread(new Runnable() {
+      threadDownload = new Thread(new Runnable() {
       @Override
       public void run() {
         File cacheDirectory = new File(getApplicationContext().getExternalCacheDir(), "downloads");
@@ -226,12 +241,8 @@ public class PlayerActivity extends AppCompatActivity {
         } catch (InterruptedException e) {
           e.printStackTrace();
         }
-
-
       }
     });
-
-
     return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
   }
 
@@ -297,14 +308,14 @@ public class PlayerActivity extends AppCompatActivity {
     public void onDroppedFrames(int count, long elapsedMs) {
       // Do nothing.
       Log.d("Qualidade Video;", "Dropped Frames: " + " " + count);
-      //salvarLog("Dropped Frames;", String.valueOf(count));
+      salvarLog("Dropped Frames;", String.valueOf(count));
     }
 
     @Override
     public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
       // Do nothing.
       Log.d("Video", "Video Size Changed: " + " " + width);
-      //salvarLog("Qualidade Video;", String.valueOf(width));
+      salvarLog("Qualidade Video;", String.valueOf(width));
     }
 
     @Override
