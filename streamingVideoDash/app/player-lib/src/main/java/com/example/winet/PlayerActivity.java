@@ -16,14 +16,30 @@
 package com.example.winet;
 
 import android.annotation.SuppressLint;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
+import android.net.wifi.p2p.WifiP2pConfig;
+import android.net.wifi.p2p.WifiP2pDevice;
+import android.net.wifi.p2p.WifiP2pDeviceList;
+import android.net.wifi.p2p.WifiP2pInfo;
+import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
@@ -63,11 +79,12 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
-/**
- * A fullscreen activity to play audio or video streams.
- */
+
 public class PlayerActivity extends AppCompatActivity {
 
   private static final String TAG = "PlayerActivity";
@@ -85,10 +102,20 @@ public class PlayerActivity extends AppCompatActivity {
   // Socket Client
   public ClientSocket clientSocket = new ClientSocket();
   public Thread threadClienteSocket = null;
+  public Thread threadWifiDirect = null;
 
-
-
-
+  // Wifi
+    Button btnOnOff, btnDiscover, btnSend, btnGo;
+    ListView listView;
+    TextView connectionStatus;
+    WifiManager wifiManager;
+    WifiP2pManager mManager;
+    WifiP2pManager.Channel mChannel;
+    BroadcastReceiver mReceiver;
+    IntentFilter mIntentFilter;
+    List<WifiP2pDevice> peers = new ArrayList<WifiP2pDevice>();
+    String[] deviceNameArray;
+    WifiP2pDevice[] deviceArray;
 
 
   // bandwidth meter to measure and estimate bandwidth
@@ -106,15 +133,28 @@ public class PlayerActivity extends AppCompatActivity {
     }
   });
 
-  @Override
+
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_player);
     componentListener = new ComponentListener();
     playerView = findViewById(R.id.video_view);
+
+    // Thread to create manager to WIFI and D2D
+    threadWifiDirect = new Thread(new Runnable() {
+
+      public void run() {
+          initialWork();
+          exqListener();
+
+      }
+
+    });
+
+    threadWifiDirect.start();
   }
 
-  @Override
+
   public void onStart() {
       super.onStart();
       if (Util.SDK_INT > 23) {
@@ -131,27 +171,27 @@ public class PlayerActivity extends AppCompatActivity {
       });
       Log.d("clienteSocket","start thread");
       threadClienteSocket.start();
-  }
+  } // onStart() end
 
-  @Override
   public void onResume() {
     super.onResume();
     hideSystemUi();
     if ((Util.SDK_INT <= 23 || player == null)) {
       initializePlayer();
     }
+    registerReceiver(mReceiver, mIntentFilter);
+  } // onResume end
 
-  }
 
-  @Override
   public void onPause() {
     super.onPause();
     if (Util.SDK_INT <= 23) {
       releasePlayer();
     }
+    unregisterReceiver(mReceiver);
   }
 
-  @Override
+
   public void onStop() {
     super.onStop();
     if (Util.SDK_INT > 23) {
@@ -168,7 +208,6 @@ public class PlayerActivity extends AppCompatActivity {
       // a controller
       loadControl = new DefaultLoadControl();
 
-
       // using a DefaultTrackSelector with an adaptive video selection factory
       player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
               new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
@@ -178,7 +217,6 @@ public class PlayerActivity extends AppCompatActivity {
       player.addAudioDebugListener(componentListener);
       playerView.setPlayer(player);
       player.setPlayWhenReady(playWhenReady);
-
       player.seekTo(currentWindow, playbackPosition);
     }
 
@@ -189,13 +227,10 @@ public class PlayerActivity extends AppCompatActivity {
     player.prepare(mediaSource, true, false);
     //player.prepare(concatenatingMediaSource, true, false);
 
-
-
-  }
+  } // initializePlayer() end
 
   private void releasePlayer() {
     if (player != null) {
-
       playbackPosition = player.getCurrentPosition();
       currentWindow = player.getCurrentWindowIndex();
       playWhenReady = player.getPlayWhenReady();
@@ -211,10 +246,8 @@ public class PlayerActivity extends AppCompatActivity {
   private MediaSource buildMediaSource(Uri uri) {
       final Uri uriRecv = uri;
       final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
-
       DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
               new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
-
 
       threadDownload = new Thread(new Runnable() {
       @Override
@@ -246,7 +279,6 @@ public class PlayerActivity extends AppCompatActivity {
     return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
   }
 
-
   @SuppressLint("InlinedApi")
   private void hideSystemUi() {
     playerView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
@@ -263,7 +295,6 @@ public class PlayerActivity extends AppCompatActivity {
 
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-
       String stateString;
       switch (playbackState) {
         case Player.STATE_IDLE:
@@ -287,7 +318,6 @@ public class PlayerActivity extends AppCompatActivity {
 
 
     // Implementing VideoRendererEventListener.
-
     @Override
     public void onVideoEnabled(DecoderCounters counters) {
 
@@ -389,5 +419,185 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
   }
+
+
+  // WIFI
+
+    private void exqListener() {
+        btnOnOff.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (wifiManager.isWifiEnabled()) {
+                    wifiManager.setWifiEnabled(false);
+                    btnOnOff.setText("ON");
+                } else {
+                    wifiManager.setWifiEnabled(true);
+                    btnOnOff.setText("OFF");
+                }
+            }
+        });
+
+        btnDiscover.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mManager.discoverPeers(mChannel, new WifiP2pManager.ActionListener() {
+                    @Override
+                    public void onSuccess() {
+                        connectionStatus.setText("Discovery Started");
+
+                    }
+
+                    @Override
+                    public void onFailure(int reason) {
+                        connectionStatus.setText("Discovery Starting Failed");
+                    }
+                });
+            }
+        });
+
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int i, long l) {
+                final WifiP2pDevice device = deviceArray[i];
+                WifiP2pConfig config = new WifiP2pConfig();
+                config.deviceAddress = device.deviceAddress;
+
+                // Connect
+                mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
+                    @Override
+                    public void onSuccess() {
+                        Toast.makeText(getApplicationContext(),"Connected to" + device.deviceName,Toast.LENGTH_LONG).show();
+                    }
+
+                    @Override
+                    public void onFailure(int reason) {
+                        Toast.makeText(getApplicationContext(),"Not Connected",Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        });
+
+        btnGo.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                //createGroup();
+                Toast.makeText(getApplicationContext(),"GO",Toast.LENGTH_LONG).show();
+            }
+        });
+
+    }
+
+
+    public void createGroup() {
+        /* Cancela conexões */
+        mManager.cancelConnect(mChannel, null);
+
+        /* Remove grupo - desconexão */
+        mManager.removeGroup(mChannel, null);
+
+        /* Limpa os serviços locais */
+        mManager.clearLocalServices(mChannel, null);
+
+        /* Limpa as requisições de serviços */
+        mManager.clearServiceRequests(mChannel, null);
+
+        /* Cria grupo */
+        mManager.createGroup(mChannel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                Toast.makeText(getApplicationContext(),"GO",Toast.LENGTH_LONG).show();
+                /* D2DReceiver irá tratar */
+            }
+
+            @Override
+            public void onFailure(int reason) {
+
+                Toast.makeText(getApplicationContext(),"Not Group Created ",Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void initialWork() {
+        // Btns
+        btnOnOff = (Button) findViewById(R.id.onOff);
+        btnDiscover = (Button) findViewById(R.id.discover);
+        //btnSend = (Button) findViewById(R.id.sendButton);
+        listView = (ListView) findViewById(R.id.peerListView);
+        btnGo = (Button) findViewById(R.id.go);
+        //read_msg_box = (TextView) findViewById(R.id.readMsg);
+        connectionStatus = (TextView) findViewById(R.id.connectionStatus);
+        //writeMsg = (EditText) findViewById(R.id.writeMsg);
+
+        // Wifi manager object
+        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+
+        mManager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
+        mChannel = mManager.initialize(this,getMainLooper(), null);
+
+        mReceiver = new WiFiDirectBroadcastReceiver(mManager, mChannel, this);
+
+        mIntentFilter = new IntentFilter();
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
+        mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
+
+    }
+
+
+    WifiP2pManager.PeerListListener peerListListener = new WifiP2pManager.PeerListListener() {
+        @Override
+        public void onPeersAvailable(WifiP2pDeviceList peerList) {
+            if(!peerList.getDeviceList().equals(peers)) {
+                peers.clear();
+                peers.addAll(peerList.getDeviceList());
+
+                deviceNameArray = new String[peerList.getDeviceList().size()];
+                deviceArray = new WifiP2pDevice[peerList.getDeviceList().size()];
+
+                int index = 0;
+
+                for(WifiP2pDevice device : peerList.getDeviceList()) {
+                    deviceNameArray[index] = device.deviceName;
+                    Log.d("Status",device.deviceName);
+                    deviceArray[index] = device;
+                    index++;
+                }
+                Log.d("Status","device name");
+                ArrayAdapter<String> adapter = new ArrayAdapter<String>(getApplicationContext(), android.R.layout.simple_list_item_1, deviceNameArray);
+                listView.setAdapter(adapter);
+            }
+
+            if(peers.size() == 0) {
+                Toast.makeText(getApplicationContext(), "No Device Found", Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
+    };
+
+
+    WifiP2pManager.ConnectionInfoListener connctionInfoListener = new WifiP2pManager.ConnectionInfoListener() {
+        @Override
+        public void onConnectionInfoAvailable(WifiP2pInfo wifiP2pInfo) {
+            final InetAddress groupOwnerAddres = wifiP2pInfo.groupOwnerAddress;
+
+            if(wifiP2pInfo.groupFormed && wifiP2pInfo.isGroupOwner) {
+                //wifiManager.getDhcpInfo();
+                Log.d("InetAddres", String.valueOf(groupOwnerAddres));
+                connectionStatus.setText("Host");
+
+                //serverClass = new ServerClass();
+                //serverClass.start();
+
+            } else if(wifiP2pInfo.groupFormed){
+                //wifiManager.getDhcpInfo();
+                Log.d("InetAddres", String.valueOf(groupOwnerAddres));
+                connectionStatus.setText("Client");
+                //clientClass = new ClientClass(groupOwnerAddres);
+                //clientClass.start();
+
+            }
+        }
+    };
 
 }
