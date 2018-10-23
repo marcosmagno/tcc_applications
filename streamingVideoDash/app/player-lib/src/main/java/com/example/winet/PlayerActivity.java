@@ -36,7 +36,6 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -51,7 +50,6 @@ import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.audio.AudioRendererEventListener;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
 import com.google.android.exoplayer2.offline.DownloaderConstructorHelper;
-import com.google.android.exoplayer2.source.ConcatenatingMediaSource;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.dash.DashChunkSource;
 import com.google.android.exoplayer2.source.dash.DashMediaSource;
@@ -66,11 +64,7 @@ import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
-import com.google.android.exoplayer2.upstream.cache.Cache;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSourceFactory;
 import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
-import com.google.android.exoplayer2.upstream.cache.NoOpCacheEvictor;
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
@@ -80,6 +74,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -95,6 +90,7 @@ public class PlayerActivity extends AppCompatActivity {
   private int currentWindow;
   private boolean playWhenReady = true;
   public Thread threadDownload = null;
+  public Thread threadGetGO = null;
 
   // Create a default LoadControl
   public LoadControl loadControl;
@@ -150,7 +146,6 @@ public class PlayerActivity extends AppCompatActivity {
       }
 
     });
-
     threadWifiDirect.start();
   }
 
@@ -164,13 +159,31 @@ public class PlayerActivity extends AppCompatActivity {
       threadClienteSocket = new Thread(new Runnable() {
           @Override
           public void run() {
+              int count = 0;
             clientSocket.startConnection();
             Log.d("clienteSocket","connection");
-            clientSocket.sendDataCellPhone();
+            WifiP2pConfig config = new WifiP2pConfig();
+
+            clientSocket.sendDataCellPhone(getMacAddr());
+            Log.d("Responsiline", clientSocket.getResponseLine());
+
+            config.deviceAddress = clientSocket.getResponseLine();
+
+            if (getMacAddr().equals(clientSocket.getResponseLine())){
+                createGroup();
+              } else {
+                discover();
+                //Log.d("Peers", String.valueOf(peers.size()));
+                //connectD2D(config);
+
+            }
+
           }
       });
       Log.d("clienteSocket","start thread");
       threadClienteSocket.start();
+
+
   } // onStart() end
 
   public void onResume() {
@@ -276,6 +289,7 @@ public class PlayerActivity extends AppCompatActivity {
         }
       }
     });
+
     return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
   }
 
@@ -422,9 +436,9 @@ public class PlayerActivity extends AppCompatActivity {
 
 
   // WIFI
-
     private void exqListener() {
-        btnOnOff.setOnClickListener(new View.OnClickListener() {
+      /*
+      btnOnOff.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (wifiManager.isWifiEnabled()) {
@@ -454,18 +468,24 @@ public class PlayerActivity extends AppCompatActivity {
                 });
             }
         });
+        */
 
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int i, long l) {
                 final WifiP2pDevice device = deviceArray[i];
-                WifiP2pConfig config = new WifiP2pConfig();
+
+                final WifiP2pConfig config = new WifiP2pConfig();
                 config.deviceAddress = device.deviceAddress;
+
+                Log.d("D2D", device.deviceAddress);
 
                 // Connect
                 mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
                     @Override
                     public void onSuccess() {
+                        Log.d("D2D", String.valueOf(config));
                         Toast.makeText(getApplicationContext(),"Connected to" + device.deviceName,Toast.LENGTH_LONG).show();
                     }
 
@@ -477,14 +497,15 @@ public class PlayerActivity extends AppCompatActivity {
             }
         });
 
+        /*
         btnGo.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                //createGroup();
+                createGroup();
                 Toast.makeText(getApplicationContext(),"GO",Toast.LENGTH_LONG).show();
             }
         });
-
+        */
     }
 
 
@@ -511,7 +532,6 @@ public class PlayerActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(int reason) {
-
                 Toast.makeText(getApplicationContext(),"Not Group Created ",Toast.LENGTH_LONG).show();
             }
         });
@@ -519,28 +539,29 @@ public class PlayerActivity extends AppCompatActivity {
 
     private void initialWork() {
         // Btns
-        btnOnOff = (Button) findViewById(R.id.onOff);
-        btnDiscover = (Button) findViewById(R.id.discover);
+        //btnOnOff = (Button) findViewById(R.id.onOff);
+        //btnDiscover = (Button) findViewById(R.id.discover);
         //btnSend = (Button) findViewById(R.id.sendButton);
         listView = (ListView) findViewById(R.id.peerListView);
-        btnGo = (Button) findViewById(R.id.go);
+        //btnGo = (Button) findViewById(R.id.go);
         //read_msg_box = (TextView) findViewById(R.id.readMsg);
         connectionStatus = (TextView) findViewById(R.id.connectionStatus);
         //writeMsg = (EditText) findViewById(R.id.writeMsg);
 
         // Wifi manager object
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        // Get IP
 
+        Log.d("WifiManager", String.valueOf(wifiManager.getDhcpInfo()));
         mManager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
         mChannel = mManager.initialize(this,getMainLooper(), null);
-
         mReceiver = new WiFiDirectBroadcastReceiver(mManager, mChannel, this);
-
         mIntentFilter = new IntentFilter();
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
         mIntentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
+
 
     }
 
@@ -551,7 +572,6 @@ public class PlayerActivity extends AppCompatActivity {
             if(!peerList.getDeviceList().equals(peers)) {
                 peers.clear();
                 peers.addAll(peerList.getDeviceList());
-
                 deviceNameArray = new String[peerList.getDeviceList().size()];
                 deviceArray = new WifiP2pDevice[peerList.getDeviceList().size()];
 
@@ -559,11 +579,13 @@ public class PlayerActivity extends AppCompatActivity {
 
                 for(WifiP2pDevice device : peerList.getDeviceList()) {
                     deviceNameArray[index] = device.deviceName;
-                    Log.d("Status",device.deviceName);
+                    Log.d("DeviceName",device.deviceName);
+
                     deviceArray[index] = device;
                     index++;
+                    Log.d("DeviceArray", device.deviceAddress);
                 }
-                Log.d("Status","device name");
+                Log.d("Index", String.valueOf(index));
                 ArrayAdapter<String> adapter = new ArrayAdapter<String>(getApplicationContext(), android.R.layout.simple_list_item_1, deviceNameArray);
                 listView.setAdapter(adapter);
             }
@@ -599,5 +621,77 @@ public class PlayerActivity extends AppCompatActivity {
             }
         }
     };
+
+
+
+    public void discover() {
+
+        mManager.discoverPeers(mChannel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                connectionStatus.setText("Discovery Started");
+            }
+
+            @Override
+            public void onFailure(int reason) {
+                connectionStatus.setText("Discovery Starting Failed");
+            }
+        });
+
+    }
+
+
+    public void connectD2D(WifiP2pConfig config) {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        Log.d("Responsiline", String.valueOf(config));
+
+        //Log.d("D2D", "connecteD2D");
+        //Log.d("D2D", String.valueOf(config));
+
+        mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                Toast.makeText(getApplicationContext(),"Connected to" + "teste",Toast.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void onFailure(int reason) {
+                Toast.makeText(getApplicationContext(),"Not Connected",Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+
+
+    public static String getMacAddr() {
+        try {
+            List<NetworkInterface> all = Collections.list(NetworkInterface.getNetworkInterfaces());
+            for (NetworkInterface nif : all) {
+                if (!nif.getName().equalsIgnoreCase("wlan0")) continue;
+
+                byte[] macBytes = nif.getHardwareAddress();
+                if (macBytes == null) {
+                    return "";
+                }
+
+                StringBuilder res1 = new StringBuilder();
+                for (byte b : macBytes) {
+                    res1.append(String.format("%02X:",b));
+                }
+
+                if (res1.length() > 0) {
+                    res1.deleteCharAt(res1.length() - 1);
+                }
+                return res1.toString();
+            }
+        } catch (Exception ex) {
+        }
+        return "02:00:00:00:00:00";
+    }
 
 }

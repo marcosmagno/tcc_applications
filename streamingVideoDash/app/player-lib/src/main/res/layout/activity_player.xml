@@ -34,25 +34,8 @@ limitations under the License. -->
         android:textColor="@android:color/holo_blue_dark"
         android:textSize="18sp"
         android:textStyle="italic" />
-  <Button
-      android:id="@+id/discover"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:text="discover" />
 
-  <Button
-      android:id="@+id/onOff"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:text="Wifi On" />
-
-  <Button
-      android:id="@+id/go"
-      android:layout_width="match_parent"
-      android:layout_height="wrap_content"
-      android:text="Go" />
-
-  <ListView
+    <ListView
       android:id="@+id/peerListView"
       android:layout_width="match_parent"
       android:layout_height="200dp"
