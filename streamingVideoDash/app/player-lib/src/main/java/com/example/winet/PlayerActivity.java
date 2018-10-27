@@ -69,16 +69,25 @@ import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.nio.file.WatchService;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
-
 
 public class PlayerActivity extends AppCompatActivity {
 
@@ -90,7 +99,7 @@ public class PlayerActivity extends AppCompatActivity {
   private int currentWindow;
   private boolean playWhenReady = true;
   public Thread threadDownload = null;
-  public Thread threadGetGO = null;
+  public Thread threadSendIPtoGO = null;
 
   // Create a default LoadControl
   public LoadControl loadControl;
@@ -99,7 +108,8 @@ public class PlayerActivity extends AppCompatActivity {
   public ClientSocket clientSocket = new ClientSocket();
   public Thread threadClienteSocket = null;
   public Thread threadWifiDirect = null;
-
+  public Thread threadServerD2D = null;
+    public Thread threadClientD2D = null;
   // Wifi
     Button btnOnOff, btnDiscover, btnSend, btnGo;
     ListView listView;
@@ -112,8 +122,8 @@ public class PlayerActivity extends AppCompatActivity {
     List<WifiP2pDevice> peers = new ArrayList<WifiP2pDevice>();
     String[] deviceNameArray;
     WifiP2pDevice[] deviceArray;
-
-
+    public String macGO = null;
+    public boolean connectionD2D = false;
   // bandwidth meter to measure and estimate bandwidth
   private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
     @Override
@@ -162,19 +172,20 @@ public class PlayerActivity extends AppCompatActivity {
               int count = 0;
             clientSocket.startConnection();
             Log.d("clienteSocket","connection");
-            WifiP2pConfig config = new WifiP2pConfig();
 
-            clientSocket.sendDataCellPhone(getMacAddr());
-            Log.d("Responsiline", clientSocket.getResponseLine());
 
-            config.deviceAddress = clientSocket.getResponseLine();
+            clientSocket.sendDataCellPhone("1", getMacAddr());
+            //Log.d("Responsiline", clientSocket.getResponseLine());
 
-            if (getMacAddr().equals(clientSocket.getResponseLine())){
+            macGO = clientSocket.getMacGo();
+            Log.d("GetGO", macGO);
+            if (getMacAddr().equals(macGO)){
                 createGroup();
+                // Criar socket Server
               } else {
                 discover();
                 //Log.d("Peers", String.valueOf(peers.size()));
-                //connectD2D(config);
+                //connectD2D();
 
             }
 
@@ -182,6 +193,7 @@ public class PlayerActivity extends AppCompatActivity {
       });
       Log.d("clienteSocket","start thread");
       threadClienteSocket.start();
+      threadClienteSocket.interrupt();
 
 
   } // onStart() end
@@ -190,6 +202,7 @@ public class PlayerActivity extends AppCompatActivity {
     super.onResume();
     hideSystemUi();
     if ((Util.SDK_INT <= 23 || player == null)) {
+
       initializePlayer();
     }
     registerReceiver(mReceiver, mIntentFilter);
@@ -200,6 +213,7 @@ public class PlayerActivity extends AppCompatActivity {
     super.onPause();
     if (Util.SDK_INT <= 23) {
       releasePlayer();
+
     }
     unregisterReceiver(mReceiver);
   }
@@ -239,6 +253,19 @@ public class PlayerActivity extends AppCompatActivity {
 
     player.prepare(mediaSource, true, false);
     //player.prepare(concatenatingMediaSource, true, false);
+
+
+      Thread t = new Thread(new Runnable() {
+          @Override
+          public void run() {
+              ReadFile readFile = new ReadFile();
+              String directory = getApplicationContext().getExternalCacheDir()+"/" + "downloads";
+              Log.d("FileDirectory", directory);
+              readFile.startWatching(directory);
+          }
+      });
+      t.start();
+
 
   } // initializePlayer() end
 
@@ -289,7 +316,6 @@ public class PlayerActivity extends AppCompatActivity {
         }
       }
     });
-
     return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
   }
 
@@ -426,8 +452,7 @@ public class PlayerActivity extends AppCompatActivity {
       // the files.
       MediaScannerConnection.scanFile(getApplicationContext(),
               new String[]{testFile.toString()},
-              null,
-              null);
+              null, null);
     } catch (IOException e) {
       Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
     }
@@ -469,6 +494,7 @@ public class PlayerActivity extends AppCompatActivity {
             }
         });
         */
+
 
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
 
@@ -552,7 +578,8 @@ public class PlayerActivity extends AppCompatActivity {
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         // Get IP
 
-        Log.d("WifiManager", String.valueOf(wifiManager.getDhcpInfo()));
+
+
         mManager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
         mChannel = mManager.initialize(this,getMainLooper(), null);
         mReceiver = new WiFiDirectBroadcastReceiver(mManager, mChannel, this);
@@ -579,15 +606,14 @@ public class PlayerActivity extends AppCompatActivity {
 
                 for(WifiP2pDevice device : peerList.getDeviceList()) {
                     deviceNameArray[index] = device.deviceName;
-                    Log.d("DeviceName",device.deviceName);
-
                     deviceArray[index] = device;
                     index++;
-                    Log.d("DeviceArray", device.deviceAddress);
                 }
                 Log.d("Index", String.valueOf(index));
                 ArrayAdapter<String> adapter = new ArrayAdapter<String>(getApplicationContext(), android.R.layout.simple_list_item_1, deviceNameArray);
                 listView.setAdapter(adapter);
+
+
             }
 
             if(peers.size() == 0) {
@@ -600,24 +626,84 @@ public class PlayerActivity extends AppCompatActivity {
 
     WifiP2pManager.ConnectionInfoListener connctionInfoListener = new WifiP2pManager.ConnectionInfoListener() {
         @Override
-        public void onConnectionInfoAvailable(WifiP2pInfo wifiP2pInfo) {
+        public void onConnectionInfoAvailable(final WifiP2pInfo wifiP2pInfo) {
             final InetAddress groupOwnerAddres = wifiP2pInfo.groupOwnerAddress;
 
             if(wifiP2pInfo.groupFormed && wifiP2pInfo.isGroupOwner) {
-                //wifiManager.getDhcpInfo();
+                Log.d("InetAddres", String.valueOf(wifiManager.getDhcpInfo()));
                 Log.d("InetAddres", String.valueOf(groupOwnerAddres));
                 connectionStatus.setText("Host");
+                //TODO Criar Servidor Socket
+                threadClienteSocket.interrupt();
+                Thread servidor1 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            ServidorSocketD2D socketServerD2D1 = new ServidorSocketD2D(1403,"192.168.49.1");
+                            socketServerD2D1.startSocket();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                });
+                servidor1.start();
 
-                //serverClass = new ServerClass();
-                //serverClass.start();
+
+                Thread servidor2 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            ServidorSocketD2D socketServerD2D2 = new ServidorSocketD2D(1404,"192.168.49.1");
+                            socketServerD2D2.startSocket();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                    }
+                });
+                servidor2.start();
+
+                Thread servidor3 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            ServidorSocketD2D socketServerD2D3 = new ServidorSocketD2D(1405,"192.168.49.1");
+                            socketServerD2D3.startSocket();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                    }
+                });
+                servidor3.start();
+                // Class Arquivo
+
+
+
 
             } else if(wifiP2pInfo.groupFormed){
                 //wifiManager.getDhcpInfo();
-                Log.d("InetAddres", String.valueOf(groupOwnerAddres));
                 connectionStatus.setText("Client");
-                //clientClass = new ClientClass(groupOwnerAddres);
-                //clientClass.start();
+                String ip = getDottedDecimalIP(getLocalIPAddress());
+                Log.d("IPGO", String.valueOf(wifiP2pInfo.groupOwnerAddress));
 
+                Log.d("ClienteGO", clientSocket.getPortConnetionGo());
+
+                Thread client1 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        ClientSocketD2D clientSocketD2D = new ClientSocketD2D();
+                        //Integer.parseInt(clientSocket.getPortConnetionGo()
+                        clientSocketD2D.startConnection(String.valueOf(wifiP2pInfo.groupOwnerAddress), Integer.parseInt(clientSocket.getPortConnetionGo()));
+                        connectionD2D = true;
+
+
+                    }
+
+                });
+
+                client1.start();
+                onPause();
             }
         }
     };
@@ -641,31 +727,14 @@ public class PlayerActivity extends AppCompatActivity {
     }
 
 
-    public void connectD2D(WifiP2pConfig config) {
+    public void connectD2D(String mac) {
         try {
-            Thread.sleep(10000);
+            Thread.sleep(20000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
 
-        Log.d("Responsiline", String.valueOf(config));
-
-        //Log.d("D2D", "connecteD2D");
-        //Log.d("D2D", String.valueOf(config));
-
-        mManager.connect(mChannel, config, new WifiP2pManager.ActionListener() {
-            @Override
-            public void onSuccess() {
-                Toast.makeText(getApplicationContext(),"Connected to" + "teste",Toast.LENGTH_LONG).show();
-            }
-
-            @Override
-            public void onFailure(int reason) {
-                Toast.makeText(getApplicationContext(),"Not Connected",Toast.LENGTH_LONG).show();
-            }
-        });
-    }
-
+}
 
 
     public static String getMacAddr() {
@@ -694,4 +763,66 @@ public class PlayerActivity extends AppCompatActivity {
         return "02:00:00:00:00:00";
     }
 
+
+    public void SocketServerD2D(int port) {
+        String responseLine = null;
+        DataOutputStream os_send = null;
+        int sending = 0;
+        Log.d("SocketServerD2D", "porta aberta" + port);
+        try {
+            ServerSocket server = new ServerSocket(port);
+            Log.d("SocketServerD2D", "Criando o socket");
+            while (true) {
+                Socket cliente = server.accept();
+                Log.d("SocketServerD2D", "Cliente conectado do IP " + cliente.getInetAddress().getHostAddress());
+                os_send = new DataOutputStream(cliente.getOutputStream());
+
+                while (sending <= 10) {
+                    Log.d("SocketServerD2D", String.valueOf(sending));
+                    os_send.writeBytes("Enviando para o cliente" + port + "\n");
+                }
+                //server.close();
+            }
+        } catch (IOException ex) {
+            Log.d("SocketServerD2D", "Erro socket" + ex);
+        }
+    }
+
+
+
+
+    public byte[] getLocalIPAddress() {
+        try {
+            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
+                NetworkInterface intf = en.nextElement();
+                for (Enumeration<InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements();) {
+                    InetAddress inetAddress = enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress()) {
+                        if (inetAddress instanceof Inet4Address) { // fix for Galaxy Nexus. IPv4 is easy to use :-)
+                            return inetAddress.getAddress();
+                        }
+                        //return inetAddress.getHostAddress().toString(); // Galaxy Nexus returns IPv6
+                    }
+                }
+            }
+        } catch (SocketException ex) {
+            //Log.e("AndroidNetworkAddressFactory", "getLocalIPAddress()", ex);
+        } catch (NullPointerException ex) {
+            //Log.e("AndroidNetworkAddressFactory", "getLocalIPAddress()", ex);
+        }
+        return null;
+    }
+
+
+    public String getDottedDecimalIP(byte[] ipAddr) {
+        //convert to dotted decimal notation:
+        String ipAddrStr = "";
+        for (int i=0; i<ipAddr.length; i++) {
+            if (i > 0) {
+                ipAddrStr += ".";
+            }
+            ipAddrStr += ipAddr[i]&0xFF;
+        }
+        return ipAddrStr;
+    }
 }

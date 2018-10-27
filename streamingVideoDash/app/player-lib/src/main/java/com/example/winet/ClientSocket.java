@@ -17,7 +17,9 @@ public class ClientSocket {
     DataOutputStream os_send = null;
     DataInputStream is_recev = null;
     String responseLine = null;
-
+    String[] splitResponseLine = null;
+    String macGo = null;
+    String portConnetionGo = null;
     public void startConnection() {
         // Initialization section:
         // Try to open a socket on port 10001
@@ -37,21 +39,24 @@ public class ClientSocket {
 
     }
 
-    public void sendDataCellPhone(String macAddress) {
-
+    public void sendDataCellPhone(String typeMsg, String macAddress) {
         if (this.smtpSocket != null && this.os_send != null && this.is_recev != null) {
             try {
-                 this.os_send.writeBytes("-"  +"1" + "-" + macAddress +"\n");
+                 this.os_send.writeBytes("-"  +typeMsg + "-" + macAddress);
                 // keep on reading from/to the socket till we receive the "Ok" from SMTP,
                 // once we received that then we want to break.
-
 
                 BufferedReader d = new BufferedReader(new InputStreamReader(smtpSocket.getInputStream()));
                 //responseLine = this.is_recev.readUTF();
                 responseLine = d.readLine();
+
                 setResponseLine(responseLine);
+
                 Log.d("clienteSocket","wait responsiline" );
                 //Log.d("clienteSocket", String.valueOf(responseLine));
+                this.smtpSocket.close();
+                this.os_send.close();
+                this.is_recev.close();
 
             } catch (UnknownHostException e) {
                 System.err.println("Trying to connect to unknown host: " + e);
@@ -63,11 +68,22 @@ public class ClientSocket {
     }
 
     public void setResponseLine(String responseLine) {
-        this.responseLine = responseLine;
+        Log.d("Split", responseLine);
+        this.splitResponseLine = responseLine.split("(-)");
+        this.macGo = this.splitResponseLine[0];
+        this.portConnetionGo = this.splitResponseLine[1];
+        Log.d("Split", String.valueOf(this.splitResponseLine));
+        Log.d("SplitGO", this.macGo);
+        Log.d("SplitPort", this.portConnetionGo);
+
     }
 
-    public String getResponseLine() {
-        return this.responseLine;
+    public String getMacGo() {
+        return this.macGo;
+    }
+
+    public String getPortConnetionGo(){
+        return this.portConnetionGo;
     }
 
 

@@ -23,6 +23,18 @@ limitations under the License. -->
         android:layout_height="202dp">
 
     </com.google.android.exoplayer2.ui.PlayerView>
+
+    <Button
+        android:id="@+id/go"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="GO" />
+    <Button
+        android:id="@+id/discover"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Discover" />
+
     <TextView
         android:id="@+id/connectionStatus"
         android:layout_width="match_parent"

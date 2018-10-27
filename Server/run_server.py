@@ -21,7 +21,9 @@ inputs = [ server ]
 
 # Sockets to which we expect to write
 outputs = [ ]
+global macGo
 
+ips_clients = []
 # Outgoing message queues (socket:Queue)
 message_queues = {}
 devices = {}
@@ -86,31 +88,55 @@ while inputs:
         
         if type_msg == "1":
             macAddress = msg.split("-")[2]
-            devices[macAddress] = connection            
+            devices[macAddress] = connection 
+            print("devices", devices)           
         if type_msg == "2":
             createGO()
 
-        
-        
+        if type_msg == "3":
+            ip_client = msg.split("-")[2]
+            ips_clients.append(ip_client)
+            print(ips_clients)
+
+        if type_msg == "4":
+            print("Enviando para", connection)
+            connection.send(str(ips_clients) + "\n")
+
+            #getSocketGo().send(str(ip_client + "\n"))
+    
 
     def createGO():
         print("GO")
         count = 0
-        macGo = '0'
-        socketGo = None
+        count_port = 0
+        global macGo
+        global socketGo
+        socket_port = [0,1403,1404,1405]
+
         for mac,socket in devices.items():
-            print("Count", count)
-            if count == 1:
+
+            if count == 0:
                 print(mac)
                 macGo = mac
-                #socketGo = socket        
+                print("Mac GO", macGo)
+                socketGo = socket
             count = count + 1
 
         for k,v in devices.items():
-            print(macGo)
-            v.send(str(macGo) + "\n")
+            print("macccc", macGo)
+            if(k == macGo):
+                v.send(macGo + "-" + str(socket_port)+ "\n")
+            else:                
+                print("Enviando count", count_port)
+                msg = str(macGo + "-" + str(socket_port[count_port]) + "\n")
+                print("mensagem" + msg)
+                v.send(msg)
+            count_port = count_port + 1    
 
-        
+
+
+
+ 
 
     #for s in writable:
     #    try:
@@ -127,15 +153,15 @@ while inputs:
     #        #print(validation)
     #        #s.send(validation) 
  
-    # Handle "exceptional conditions"
-    #for s in exceptional:
-    #    print >>sys.stderr, 'handling exceptional condition for', s.getpeername()
+    #Handle "exceptional conditions"
+    for s in exceptional:
+        print >>sys.stderr, 'handling exceptional condition for', s.getpeername()
     #    # Stop listening for input on the connection
-    #    inputs.remove(s)
-    #    if s in outputs:
-    #        outputs.remove(s)
-    #    s.close()
+        inputs.remove(s)
+        if s in outputs:
+            outputs.remove(s)
+        s.close()
 
     #    # Remove message queue
-    #    del message_queues[s]
+        del message_queues[s]
     
