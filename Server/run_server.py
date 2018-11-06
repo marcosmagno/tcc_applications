@@ -10,7 +10,7 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setblocking(0)
 
 # Bind the socket to the port
-server_address = ('150.164.10.58', 10001)
+server_address = ('192.168.0.244', 10001)
 print >>sys.stderr, 'starting up on %s port %s' % server_address
 server.bind(server_address)
 
@@ -89,7 +89,11 @@ while inputs:
         if type_msg == "1":
             macAddress = msg.split("-")[2]
             devices[macAddress] = connection 
-            print("devices", devices)           
+            print("devices", devices)    
+
+
+            
+
         if type_msg == "2":
             createGO()
 

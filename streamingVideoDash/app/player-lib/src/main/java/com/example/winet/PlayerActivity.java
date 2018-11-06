@@ -85,32 +85,35 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.file.WatchService;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
 
 public class PlayerActivity extends AppCompatActivity {
 
-  private static final String TAG = "PlayerActivity";
-  private SimpleExoPlayer player;
-  private PlayerView playerView;
-  private ComponentListener componentListener;
-  private long playbackPosition;
-  private int currentWindow;
-  private boolean playWhenReady = true;
-  public Thread threadDownload = null;
-  public Thread threadSendIPtoGO = null;
+    private static final String TAG = "PlayerActivity";
+    private SimpleExoPlayer player;
+    private PlayerView playerView;
+    private ComponentListener componentListener;
+    private long playbackPosition;
+    private int currentWindow;
+    private boolean playWhenReady = true;
+    public Thread threadDownload = null;
+    public Thread threadSendIPtoGO = null;
 
-  // Create a default LoadControl
-  public LoadControl loadControl;
+    // Create a default LoadControl
+    public LoadControl loadControl;
 
-  // Socket Client
-  public ClientSocket clientSocket = new ClientSocket();
-  public Thread threadClienteSocket = null;
-  public Thread threadWifiDirect = null;
-  public Thread threadServerD2D = null;
+    // Socket Client
+    public ClientSocket clientSocket = new ClientSocket();
+    public Thread threadClienteSocket = null;
+    public Thread threadWifiDirect = null;
+    public Thread threadServerD2D = null;
     public Thread threadClientD2D = null;
-  // Wifi
+    public Thread threadReadFile = null;
+    // Wifi
     Button btnOnOff, btnDiscover, btnSend, btnGo;
     ListView listView;
     TextView connectionStatus;
@@ -124,343 +127,355 @@ public class PlayerActivity extends AppCompatActivity {
     WifiP2pDevice[] deviceArray;
     public String macGO = null;
     public boolean connectionD2D = false;
-  // bandwidth meter to measure and estimate bandwidth
-  private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
-    @Override
-    public void onBandwidthSample(int elapsedMs, long bytes, long bitrate) {
-      Log.d("Bandwidth - Elapsed", String.valueOf(elapsedMs)+";"+String.valueOf(bytes)+";"+String.valueOf(bitrate)+";");
-      Log.d("Buffer - Allocator", String.valueOf(loadControl.getAllocator().getTotalBytesAllocated()));
-      Log.d("Buffer - ControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
-      Log.d("Buffer - ControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
-      Log.d("Buffer - ControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
-      String logBandwidth = String.valueOf(elapsedMs+";"+bytes+";"+bitrate+";");
-      salvarLog("Bandwith;" , logBandwidth);
-
-    }
-  });
 
 
-  protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    setContentView(R.layout.activity_player);
-    componentListener = new ComponentListener();
-    playerView = findViewById(R.id.video_view);
+    ReadFile readFile = new ReadFile();
 
-    // Thread to create manager to WIFI and D2D
-    threadWifiDirect = new Thread(new Runnable() {
+    // bandwidth meter to measure and estimate bandwidth
+    private final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter(new Handler(), new BandwidthMeter.EventListener() {
+        @Override
+        public void onBandwidthSample(int elapsedMs, long bytes, long bitrate) {
+            Log.d("Bandwidth - Elapsed", String.valueOf(elapsedMs)+";"+String.valueOf(bytes)+";"+String.valueOf(bitrate)+";");
+            Log.d("Buffer - Allocator", String.valueOf(loadControl.getAllocator().getTotalBytesAllocated()));
+            Log.d("Buffer - ControlLength", String.valueOf(loadControl.getAllocator().getIndividualAllocationLength()));
+            Log.d("Buffer - ControlBuffer", String.valueOf(loadControl.getBackBufferDurationUs()));
+            Log.d("Buffer - ControlRetain", String.valueOf(loadControl.retainBackBufferFromKeyframe()));
+            String logBandwidth = String.valueOf(elapsedMs+";"+bytes+";"+bitrate+";");
+            salvarLog("Bandwith;" , logBandwidth);
 
-      public void run() {
-          initialWork();
-          exqListener();
-
-      }
-
+        }
     });
-    threadWifiDirect.start();
-  }
 
 
-  public void onStart() {
-      super.onStart();
-      if (Util.SDK_INT > 23) {
-          initializePlayer();
-      }
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_player);
+        componentListener = new ComponentListener();
+        playerView = findViewById(R.id.video_view);
 
-      threadClienteSocket = new Thread(new Runnable() {
-          @Override
-          public void run() {
-              int count = 0;
-            clientSocket.startConnection();
-            Log.d("clienteSocket","connection");
+        // Thread to create manager to WIFI and D2D
+        threadWifiDirect = new Thread(new Runnable() {
 
-
-            clientSocket.sendDataCellPhone("1", getMacAddr());
-            //Log.d("Responsiline", clientSocket.getResponseLine());
-
-            macGO = clientSocket.getMacGo();
-            Log.d("GetGO", macGO);
-            if (getMacAddr().equals(macGO)){
-                createGroup();
-                // Criar socket Server
-              } else {
-                discover();
-                //Log.d("Peers", String.valueOf(peers.size()));
-                //connectD2D();
+            public void run() {
+                initialWork();
+                exqListener();
 
             }
 
-          }
-      });
-      Log.d("clienteSocket","start thread");
-      threadClienteSocket.start();
-      threadClienteSocket.interrupt();
-
-
-  } // onStart() end
-
-  public void onResume() {
-    super.onResume();
-    hideSystemUi();
-    if ((Util.SDK_INT <= 23 || player == null)) {
-
-      initializePlayer();
-    }
-    registerReceiver(mReceiver, mIntentFilter);
-  } // onResume end
-
-
-  public void onPause() {
-    super.onPause();
-    if (Util.SDK_INT <= 23) {
-      releasePlayer();
-
-    }
-    unregisterReceiver(mReceiver);
-  }
-
-
-  public void onStop() {
-    super.onStop();
-    if (Util.SDK_INT > 23) {
-      releasePlayer();
-    }
-  }
-
-  private void initializePlayer() {
-    if (player == null) {
-      // a factory to create an AdaptiveVideoTrackSelection
-      TrackSelection.Factory adaptiveTrackSelectionFactory =
-              new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
-
-      // a controller
-      loadControl = new DefaultLoadControl();
-
-      // using a DefaultTrackSelector with an adaptive video selection factory
-      player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
-              new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
-
-      player.addListener(componentListener);
-      player.addVideoDebugListener(componentListener);
-      player.addAudioDebugListener(componentListener);
-      playerView.setPlayer(player);
-      player.setPlayWhenReady(playWhenReady);
-      player.seekTo(currentWindow, playbackPosition);
+        });
+        threadWifiDirect.start();
     }
 
-    //TODO teste: 4G constroi o media source - D2D cria um novo socket (Definir uma variavel de controle)
-    MediaSource mediaSource = buildMediaSource(Uri.parse(getString(R.string.media_url_dash)));
-    threadDownload.start();
 
-    player.prepare(mediaSource, true, false);
-    //player.prepare(concatenatingMediaSource, true, false);
+    public void onStart() {
+        super.onStart();
+        if (Util.SDK_INT > 23) {
+            initializePlayer();
+        }
 
-
-      Thread t = new Thread(new Runnable() {
-          @Override
-          public void run() {
-              ReadFile readFile = new ReadFile();
-              String directory = getApplicationContext().getExternalCacheDir()+"/" + "downloads";
-              Log.d("FileDirectory", directory);
-              readFile.startWatching(directory);
-          }
-      });
-      t.start();
+        threadClienteSocket = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int count = 0;
+                clientSocket.startConnection();
+                Log.d("clienteSocket","connection");
 
 
-  } // initializePlayer() end
+                clientSocket.sendDataCellPhone("1", getMacAddr());
+                //Log.d("Responsiline", clientSocket.getResponseLine());
 
-  private void releasePlayer() {
-    if (player != null) {
-      playbackPosition = player.getCurrentPosition();
-      currentWindow = player.getCurrentWindowIndex();
-      playWhenReady = player.getPlayWhenReady();
-      player.removeListener(componentListener);
-      player.removeVideoDebugListener(componentListener);
-      player.removeAudioDebugListener(componentListener);
-      player.release();
-      player = null;
+                macGO = clientSocket.getMacGo();
+                Log.d("GetGO", macGO);
+                if (getMacAddr().equals(macGO)){
+                    createGroup();
+                    // Criar socket Server
+                } else {
+                    discover();
+                    //Log.d("Peers", String.valueOf(peers.size()));
+
+                    //connectD2D();
+
+                }
+
+            }
+        });
+        Log.d("clienteSocket","start thread");
+        threadClienteSocket.start();
+        threadClienteSocket.interrupt();
+
+
+    } // onStart() end
+
+    public void onResume() {
+        super.onResume();
+        hideSystemUi();
+        if ((Util.SDK_INT <= 23 || player == null)) {
+
+            initializePlayer();
+        }
+        registerReceiver(mReceiver, mIntentFilter);
+    } // onResume end
+
+
+    public void onPause() {
+        super.onPause();
+        if (Util.SDK_INT <= 23) {
+            releasePlayer();
+            threadDownload.interrupt();
+            threadReadFile.interrupt();
+
+        }
+        unregisterReceiver(mReceiver);
     }
 
-  }
 
-  private MediaSource buildMediaSource(Uri uri) {
-      final Uri uriRecv = uri;
-      final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
-      DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
-              new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
+    public void onStop() {
+        super.onStop();
+        if (Util.SDK_INT > 23) {
+            releasePlayer();
+        }
+    }
 
-      threadDownload = new Thread(new Runnable() {
-      @Override
-      public void run() {
-        File cacheDirectory = new File(getApplicationContext().getExternalCacheDir(), "downloads");
-        LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(100 * 1024 * 1024);
-        SimpleCache cache = new SimpleCache(cacheDirectory, evictor);
-        //DefaultHttpDataSourceFactory factory = new DefaultHttpDataSourceFactory("ExoPlayer", null);
-        DownloaderConstructorHelper constructorHelper =
-                new DownloaderConstructorHelper(cache, manifestDataSourceFactory);
-        // Create a downloader for the first representation of the first adaptation set of the first
-        // period.
-        Log.d("File", String.valueOf(getApplicationContext().getExternalCacheDir()));
-        DashDownloader dashDownloader = new DashDownloader(uriRecv, Collections.singletonList(new RepresentationKey(0, 0, 0)), constructorHelper);
+    private void initializePlayer() {
+        if (player == null) {
+            // a factory to create an AdaptiveVideoTrackSelection
+            TrackSelection.Factory adaptiveTrackSelectionFactory =
+                    new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
+
+            // a controller
+            loadControl = new DefaultLoadControl();
+
+            // using a DefaultTrackSelector with an adaptive video selection factory
+            player = ExoPlayerFactory.newSimpleInstance(new DefaultRenderersFactory(this),
+                    new DefaultTrackSelector(adaptiveTrackSelectionFactory), loadControl);
+
+            player.addListener(componentListener);
+            player.addVideoDebugListener(componentListener);
+            player.addAudioDebugListener(componentListener);
+            playerView.setPlayer(player);
+            player.setPlayWhenReady(playWhenReady);
+            player.seekTo(currentWindow, playbackPosition);
+        }
+
+        //TODO teste: 4G constroi o media source - D2D cria um novo socket (Definir uma variavel de controle)
+        MediaSource mediaSource = buildMediaSource(Uri.parse(getString(R.string.media_url_dash)));
+        threadDownload.start();
+
+        player.prepare(mediaSource, true, false);
+        //player.prepare(concatenatingMediaSource, true, false);
+
+
+        threadReadFile = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String directory = getApplicationContext().getExternalCacheDir()+"/" + "downloads";
+                Log.d("FileDirectory", directory);
+                readFile.startWatching(directory);
+
+            }
+        });
+        threadReadFile.start();
+        Log.d("ThreadStats", String.valueOf(threadReadFile.getState()));
+
+
+    } // initializePlayer() end
+
+    private void releasePlayer() {
+        if (player != null) {
+            playbackPosition = player.getCurrentPosition();
+            currentWindow = player.getCurrentWindowIndex();
+            playWhenReady = player.getPlayWhenReady();
+            player.removeListener(componentListener);
+            player.removeVideoDebugListener(componentListener);
+            player.removeAudioDebugListener(componentListener);
+            player.release();
+            player = null;
+        }
+
+    }
+
+    private MediaSource buildMediaSource(Uri uri) {
+        final Uri uriRecv = uri;
+        final DataSource.Factory manifestDataSourceFactory = new DefaultHttpDataSourceFactory("ua");
+        DashChunkSource.Factory dashChunkSourceFactory = new DefaultDashChunkSource.Factory(
+                new DefaultHttpDataSourceFactory("ua", BANDWIDTH_METER));
+
+        threadDownload = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File cacheDirectory = new File(getApplicationContext().getExternalCacheDir(), "downloads");
+                LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(100 * 1024 * 1024);
+                SimpleCache cache = new SimpleCache(cacheDirectory, evictor);
+                //DefaultHttpDataSourceFactory factory = new DefaultHttpDataSourceFactory("ExoPlayer", null);
+                DownloaderConstructorHelper constructorHelper =
+                        new DownloaderConstructorHelper(cache, manifestDataSourceFactory);
+                // Create a downloader for the first representation of the first adaptation set of the first
+                // period.
+                Log.d("File", String.valueOf(getApplicationContext().getExternalCacheDir()));
+                DashDownloader dashDownloader = new DashDownloader(uriRecv, Collections.singletonList(new RepresentationKey(0, 0, 0)), constructorHelper);
+                try {
+                    dashDownloader.download();
+                    dashDownloader.getDownloadPercentage();
+
+                    Log.d("Download", String.valueOf(dashDownloader.getDownloadPercentage()));
+
+                    Log.d("Download", "Download");
+                }
+                catch (IOException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+        return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
+    }
+
+    @SuppressLint("InlinedApi")
+    private void hideSystemUi() {
+        playerView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+    }
+
+    private class ComponentListener extends Player.DefaultEventListener implements
+            VideoRendererEventListener, AudioRendererEventListener {
+
+        @Override
+        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+            String stateString;
+            switch (playbackState) {
+                case Player.STATE_IDLE:
+                    stateString = "ExoPlayer.STATE_IDLE      -";
+                    break;
+                case Player.STATE_BUFFERING:
+                    stateString = "ExoPlayer.STATE_BUFFERING -";
+                    break;
+                case Player.STATE_READY:
+                    stateString = "ExoPlayer.STATE_READY     -";
+                    break;
+                case Player.STATE_ENDED:
+                    stateString = "ExoPlayer.STATE_ENDED     -";
+                    break;
+                default:
+                    stateString = "UNKNOWN_STATE             -";
+                    break;
+            }
+            Log.d(TAG, "Bandwidth - changed state to " + stateString + " playWhenReady: " + playWhenReady + playbackState);
+        }
+
+
+        // Implementing VideoRendererEventListener.
+        @Override
+        public void onVideoEnabled(DecoderCounters counters) {
+
+            // Do nothing.
+        }
+
+        @Override
+        public void onVideoDecoderInitialized(String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onVideoInputFormatChanged(Format format) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onDroppedFrames(int count, long elapsedMs) {
+            // Do nothing.
+            Log.d("Qualidade Video;", "Dropped Frames: " + " " + count);
+            salvarLog("Dropped Frames;", String.valueOf(count));
+        }
+
+        @Override
+        public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
+            // Do nothing.
+            Log.d("Video", "Video Size Changed: " + " " + width);
+            salvarLog("Qualidade Video;", String.valueOf(width));
+        }
+
+        @Override
+        public void onRenderedFirstFrame(Surface surface) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onVideoDisabled(DecoderCounters counters) {
+            // Do nothing.
+        }
+
+        // Implementing AudioRendererEventListener.
+
+        @Override
+        public void onAudioEnabled(DecoderCounters counters) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onAudioSessionId(int audioSessionId) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onAudioDecoderInitialized(String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onAudioInputFormatChanged(Format format) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onAudioSinkUnderrun(int bufferSize, long bufferSizeMs, long elapsedSinceLastFeedMs) {
+            // Do nothing.
+        }
+
+        @Override
+        public void onAudioDisabled(DecoderCounters counters) {
+            // Do nothing.
+        }
+
+    }
+
+
+    public void salvarLog(String type, String data) {
         try {
-          dashDownloader.download();
-          dashDownloader.getDownloadPercentage();
-          Log.d("Download", String.valueOf(dashDownloader.getDownloadPercentage()));
+            // Creates a file in the primary external storage space of the
+            // current application.
+            // If the file does not exists, it is created.
+            Date currentTime = Calendar.getInstance().getTime();
+            File testFile = new File(getApplicationContext().getExternalFilesDir(null), "Logs.txt");
+            if (!testFile.exists())
+                testFile.createNewFile();
 
-          Log.d("Download", "Download");
+            // Adds a line to the file
+            BufferedWriter writer = new BufferedWriter(new FileWriter(testFile, true /*append*/));
+            Log.d("currentAdata", String.valueOf(currentTime));
+            writer.write( currentTime + type + data + "\n");
+            writer.close();
+            // Refresh the data so it can seen when the device is plugged in a
+            // computer. You may have to unplug and replug the device to see the
+            // latest changes. This is not necessary if the user should not modify
+            // the files.
+
+            MediaScannerConnection.scanFile(getApplicationContext(),
+                    new String[]{testFile.toString()},
+                    null, null);
+        } catch (IOException e) {
+            Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
         }
-        catch (IOException e) {
-          e.printStackTrace();
-        } catch (InterruptedException e) {
-          e.printStackTrace();
-        }
-      }
-    });
-    return new DashMediaSource.Factory(dashChunkSourceFactory,manifestDataSourceFactory).createMediaSource(uri);
-  }
 
-  @SuppressLint("InlinedApi")
-  private void hideSystemUi() {
-    playerView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE
-            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
-  }
-
-  private class ComponentListener extends Player.DefaultEventListener implements
-          VideoRendererEventListener, AudioRendererEventListener {
-
-    @Override
-    public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-      String stateString;
-      switch (playbackState) {
-        case Player.STATE_IDLE:
-          stateString = "ExoPlayer.STATE_IDLE      -";
-          break;
-        case Player.STATE_BUFFERING:
-          stateString = "ExoPlayer.STATE_BUFFERING -";
-          break;
-        case Player.STATE_READY:
-          stateString = "ExoPlayer.STATE_READY     -";
-          break;
-        case Player.STATE_ENDED:
-          stateString = "ExoPlayer.STATE_ENDED     -";
-          break;
-        default:
-          stateString = "UNKNOWN_STATE             -";
-          break;
-      }
-      Log.d(TAG, "Bandwidth - changed state to " + stateString + " playWhenReady: " + playWhenReady + playbackState);
     }
 
 
-    // Implementing VideoRendererEventListener.
-    @Override
-    public void onVideoEnabled(DecoderCounters counters) {
-
-      // Do nothing.
-    }
-
-    @Override
-    public void onVideoDecoderInitialized(String decoderName, long initializedTimestampMs, long initializationDurationMs) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onVideoInputFormatChanged(Format format) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onDroppedFrames(int count, long elapsedMs) {
-      // Do nothing.
-      Log.d("Qualidade Video;", "Dropped Frames: " + " " + count);
-      salvarLog("Dropped Frames;", String.valueOf(count));
-    }
-
-    @Override
-    public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
-      // Do nothing.
-      Log.d("Video", "Video Size Changed: " + " " + width);
-      salvarLog("Qualidade Video;", String.valueOf(width));
-    }
-
-    @Override
-    public void onRenderedFirstFrame(Surface surface) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onVideoDisabled(DecoderCounters counters) {
-      // Do nothing.
-    }
-
-    // Implementing AudioRendererEventListener.
-
-    @Override
-    public void onAudioEnabled(DecoderCounters counters) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onAudioSessionId(int audioSessionId) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onAudioDecoderInitialized(String decoderName, long initializedTimestampMs, long initializationDurationMs) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onAudioInputFormatChanged(Format format) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onAudioSinkUnderrun(int bufferSize, long bufferSizeMs, long elapsedSinceLastFeedMs) {
-      // Do nothing.
-    }
-
-    @Override
-    public void onAudioDisabled(DecoderCounters counters) {
-      // Do nothing.
-    }
-
-  }
-
-
-  public void salvarLog(String type, String data) {
-    try {
-      // Creates a file in the primary external storage space of the
-      // current application.
-      // If the file does not exists, it is created.
-      File testFile = new File(getApplicationContext().getExternalFilesDir(null), "Logs.txt");
-      if (!testFile.exists())
-        testFile.createNewFile();
-
-      // Adds a line to the file
-      BufferedWriter writer = new BufferedWriter(new FileWriter(testFile, true /*append*/));
-      writer.write(type + data + "\n");
-      writer.close();
-      // Refresh the data so it can seen when the device is plugged in a
-      // computer. You may have to unplug and replug the device to see the
-      // latest changes. This is not necessary if the user should not modify
-      // the files.
-      MediaScannerConnection.scanFile(getApplicationContext(),
-              new String[]{testFile.toString()},
-              null, null);
-    } catch (IOException e) {
-      Log.e("ReadWriteFile", "Unable to write to the TestFile.txt file.");
-    }
-
-  }
-
-
-  // WIFI
+    // WIFI
     private void exqListener() {
       /*
       btnOnOff.setOnClickListener(new View.OnClickListener() {
@@ -627,82 +642,69 @@ public class PlayerActivity extends AppCompatActivity {
     WifiP2pManager.ConnectionInfoListener connctionInfoListener = new WifiP2pManager.ConnectionInfoListener() {
         @Override
         public void onConnectionInfoAvailable(final WifiP2pInfo wifiP2pInfo) {
-            final InetAddress groupOwnerAddres = wifiP2pInfo.groupOwnerAddress;
+
 
             if(wifiP2pInfo.groupFormed && wifiP2pInfo.isGroupOwner) {
-                Log.d("InetAddres", String.valueOf(wifiManager.getDhcpInfo()));
-                Log.d("InetAddres", String.valueOf(groupOwnerAddres));
-                connectionStatus.setText("Host");
+                   connectionStatus.setText("Host");
+
                 //TODO Criar Servidor Socket
                 threadClienteSocket.interrupt();
-                Thread servidor1 = new Thread(new Runnable() {
+                Thread port1 = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        try {
-                            ServidorSocketD2D socketServerD2D1 = new ServidorSocketD2D(1403,"192.168.49.1");
-                            socketServerD2D1.startSocket();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
-                servidor1.start();
-
-
-                Thread servidor2 = new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            ServidorSocketD2D socketServerD2D2 = new ServidorSocketD2D(1404,"192.168.49.1");
-                            socketServerD2D2.startSocket();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+                        ServidorSocketD2D socketServerD2D1 = new ServidorSocketD2D();
+                        Log.d("ServidorSocket", "1403 Thread Socket");
+                        socketServerD2D1.setReadFile(readFile);
+                        socketServerD2D1.startSocket(1403,"192.168.49.1",getApplicationContext());
 
                     }
                 });
-                servidor2.start();
+                port1.start();
 
-                Thread servidor3 = new Thread(new Runnable() {
+
+                Thread port2 = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        try {
-                            ServidorSocketD2D socketServerD2D3 = new ServidorSocketD2D(1405,"192.168.49.1");
-                            socketServerD2D3.startSocket();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+                        ServidorSocketD2D socketServerD2D2 = new ServidorSocketD2D();
+                        Log.d("ServidorSocket", "1404 Thread Socket");
+                        socketServerD2D2.setReadFile(readFile);
+                        socketServerD2D2.startSocket(1404,"192.168.49.1",getApplicationContext());
 
                     }
                 });
-                servidor3.start();
+                port2.start();
+
+                Thread port3 = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        ServidorSocketD2D socketServerD2D3 = new ServidorSocketD2D();
+                        Log.d("ServidorSocket", "1404 Thread Socket");
+                        socketServerD2D3.setReadFile(readFile);
+                        socketServerD2D3.startSocket(1405,"192.168.49.1",getApplicationContext());
+
+                    }
+                });
+                port3.start();
                 // Class Arquivo
 
-
-
-
             } else if(wifiP2pInfo.groupFormed){
-                //wifiManager.getDhcpInfo();
                 connectionStatus.setText("Client");
                 String ip = getDottedDecimalIP(getLocalIPAddress());
-                Log.d("IPGO", String.valueOf(wifiP2pInfo.groupOwnerAddress));
 
-                Log.d("ClienteGO", clientSocket.getPortConnetionGo());
-
-                Thread client1 = new Thread(new Runnable() {
+                Thread client = new Thread(new Runnable() {
                     @Override
                     public void run() {
                         ClientSocketD2D clientSocketD2D = new ClientSocketD2D();
-                        //Integer.parseInt(clientSocket.getPortConnetionGo()
-                        clientSocketD2D.startConnection(String.valueOf(wifiP2pInfo.groupOwnerAddress), Integer.parseInt(clientSocket.getPortConnetionGo()));
-                        connectionD2D = true;
 
+                        clientSocketD2D.startConnection(String.valueOf(wifiP2pInfo.groupOwnerAddress), Integer.parseInt(clientSocket.getPortConnetionGo()));
+                        Log.d("cliente", "enviando 0");
+                        clientSocketD2D.sendDataCellPhone(readFile.getLastFile(), getApplicationContext());
 
                     }
-
                 });
 
-                client1.start();
+                client.start();
+                // Pause o Video
                 onPause();
             }
         }
@@ -734,7 +736,7 @@ public class PlayerActivity extends AppCompatActivity {
             e.printStackTrace();
         }
 
-}
+    }
 
 
     public static String getMacAddr() {

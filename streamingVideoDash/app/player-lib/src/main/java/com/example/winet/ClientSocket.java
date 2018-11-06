@@ -25,12 +25,13 @@ public class ClientSocket {
         // Try to open a socket on port 10001
         // Try to open input and output streams
         try {
-            this.smtpSocket = new Socket("150.164.10.58", 10001);
+            this.smtpSocket = new Socket("192.168.0.244", 10001);
             this.os_send = new DataOutputStream(this.smtpSocket.getOutputStream());
             this.is_recev = new DataInputStream(this.smtpSocket.getInputStream());
             Log.d("clienteSocket", "tentando conectar" );
         } catch (UnknownHostException e) {
             System.err.println("Don't know about host: hostname");
+            System.err.println("Dons't know about host: hostname");
             Log.d("clienteSocket", "Don't know about host: hostname" );
         } catch (IOException e) {
             Log.d("clienteSocket", "Couldn't get I/O for the connection to: hostname" );
@@ -49,10 +50,9 @@ public class ClientSocket {
                 BufferedReader d = new BufferedReader(new InputStreamReader(smtpSocket.getInputStream()));
                 //responseLine = this.is_recev.readUTF();
                 responseLine = d.readLine();
-
                 setResponseLine(responseLine);
 
-                Log.d("clienteSocket","wait responsiline" );
+                Log.d("clienteSocket","wait responsiline");
                 //Log.d("clienteSocket", String.valueOf(responseLine));
                 this.smtpSocket.close();
                 this.os_send.close();
