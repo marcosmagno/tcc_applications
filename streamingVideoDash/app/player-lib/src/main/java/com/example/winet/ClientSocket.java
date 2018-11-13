@@ -25,7 +25,7 @@ public class ClientSocket {
         // Try to open a socket on port 10001
         // Try to open input and output streams
         try {
-            this.smtpSocket = new Socket("192.168.0.244", 10001);
+            this.smtpSocket = new Socket("192.168.0.105", 10001);
             this.os_send = new DataOutputStream(this.smtpSocket.getOutputStream());
             this.is_recev = new DataInputStream(this.smtpSocket.getInputStream());
             Log.d("clienteSocket", "tentando conectar" );

@@ -1,0 +1,20 @@
+Sat Nov 10 14:04:08 GMT-02:00 2018Qualidade Video;320
+Sat Nov 10 14:04:20 GMT-02:00 2018Qualidade Video;768
+Sat Nov 10 14:04:28 GMT-02:00 2018Qualidade Video;1024
+Sat Nov 10 14:04:36 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:04:44 GMT-02:00 2018Qualidade Video;768
+Sat Nov 10 14:04:48 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:05:00 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:05:48 GMT-02:00 2018Qualidade Video;768
+Sat Nov 10 14:06:08 GMT-02:00 2018Qualidade Video;480
+Sat Nov 10 14:06:36 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:07:00 GMT-02:00 2018Qualidade Video;320
+Sat Nov 10 14:07:04 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:07:16 GMT-02:00 2018Qualidade Video;1280
+Sat Nov 10 14:07:28 GMT-02:00 2018Qualidade Video;480
+Sat Nov 10 14:07:36 GMT-02:00 2018Qualidade Video;768
+Sat Nov 10 14:07:44 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:07:48 GMT-02:00 2018Qualidade Video;768
+Sat Nov 10 14:07:52 GMT-02:00 2018Qualidade Video;640
+Sat Nov 10 14:08:04 GMT-02:00 2018Qualidade Video;768
+

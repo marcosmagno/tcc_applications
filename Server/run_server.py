@@ -2,7 +2,8 @@ import select
 import socket
 import sys
 import Queue
-import mod_server
+#from multiprocessing import Queue
+#import mod_server
 import logging
 import time
 # Create a TCP/IP socket
@@ -10,7 +11,7 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.setblocking(0)
 
 # Bind the socket to the port
-server_address = ('192.168.0.244', 10001)
+server_address = ('192.168.0.105', 10001)
 print >>sys.stderr, 'starting up on %s port %s' % server_address
 server.bind(server_address)
 
